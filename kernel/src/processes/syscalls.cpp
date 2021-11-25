@@ -20,17 +20,12 @@ static void sys_call_exit(PCB_t *pcb) {
 }
 
 void sys_call_printf(PCB_t *pcb) {
-    char *buffer = (char *)pcb->regs.esi;
-
-    if (get_focused_terminal() == pcb->shell_id) {
-        #ifdef DEBUG_PIDS
-            set_color(FOREGROUND_DARKGRAY);
-            kprintf("%s (pid=%d | ppid=%d): ", pcb->name, pcb->pid, pcb->ppid);
-            reset_color();
-        #endif
-        kprintf("%s", (char *) pcb->regs.esi);
-    }
-    print_to_stream(pcb, buffer);
+    #ifdef DEBUG_PIDS
+        set_color(FOREGROUND_DARKGRAY);
+        kprintf("%s (pid=%d | ppid=%d): ", pcb->name, pcb->pid, pcb->ppid);
+        reset_color();
+    #endif
+    kprintf("%s", (char *) pcb->regs.esi);
     set_process_as_ready(pcb);
 }
 

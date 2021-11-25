@@ -6,21 +6,20 @@
 #include <drivers/screen/screen.h>
 
 static volatile fat12_t *fat = reinterpret_cast<fat12_t *>(FS_START_ADDR);
-static folder_t *root = NULL;
 static char file_buffer[SCREEN_BUFFER_SIZE];
 
-static void save_root_folder();
+static void save_root_folder(folder_t *root);
 static uint32_t get_cluster_count_needed(uint32_t size);
 static int exists_n_free_clusters(uint32_t n);
 static uint32_t get_free_cluster();
 static void free_all_occupied_clusters(uint32_t start_cluster);
-static void load_root_folder();
+static folder_t *load_root_folder();
 static void normalize_filename(char *filename);
 static int exists_file(const char *filename);
-static void free_root_dir();
-static void create_file(const char *filename);
-static void delete_file(const char *filename);
-static file_t *get_file(char *filename);
+static void free_root_dir(folder_t *root);
+static void create_file(folder_t *root, const char *filename);
+static void delete_file(folder_t *root, const char *filename);
+static file_t *get_file(folder_t *root, char *filename);
 static void create_default_files();
 static void append_data(char *filename, char *buffer, uint32_t bytes);
 
@@ -56,7 +55,7 @@ static void create_default_files() {
     append_data("primes.dat", buff, strlen(buff));
 }
 
-static void free_root_dir() {
+static void free_root_dir(folder_t *root) {
     // make sure the root dir has not
     // been already deallocated
     if (root == NULL)
@@ -75,6 +74,7 @@ static void free_root_dir() {
 }
 
 static int exists_file(const char *filename) {
+    folder_t *root = load_root_folder();
     // go through the files of the root dir
     // and keep comparing their names with
     // the filename given as a parameter
@@ -162,23 +162,23 @@ int fs_init() {
         fat[i].value = FREE_CLUSTER;
 
     // create a root directory that will start at cluster 0
-    root = (folder_t *)kmalloc(sizeof(folder_t));
+    folder_t *root = (folder_t *)kmalloc(sizeof(folder_t));
     root->file_count = 0;
     root->files = NULL;
     fat[0].value = TAKEN_CLUSTER;
 
     // save the root directory at the very beginning of the clusters
-    save_root_folder();
+    save_root_folder(root);
 
     // deallocate it as it is not needed anymore
-    free_root_dir();
+    free_root_dir(root);
 
     // create some default files as a proof of concept
     create_default_files();
     return 0;
 }
 
-static void save_root_folder() {
+static void save_root_folder(folder_t *root) {
     // calculate the total number of clusters needed to store the root dir
     uint32_t clusters_needed = get_cluster_count_needed(ROOT_FOLDER_SIZE);
 
@@ -245,13 +245,9 @@ static void save_root_folder() {
     fat[curr_cluster].value = EOF_CLUSTER;
 }
 
-static void load_root_folder() {
-    // make sure the root dir has not been loaded yet
-    if (root != NULL)
-        free_root_dir();
-
+static folder_t *load_root_folder() {
     uint32_t curr_cluster = ROOT_FIRST_START_CLUSTER;
-    root = (folder_t *)kmalloc(sizeof(folder_t));
+    folder_t *root = (folder_t *)kmalloc(sizeof(folder_t));
 
     // read the number of files off of the first cluster
     // and allocate an array for them
@@ -270,7 +266,7 @@ static void load_root_folder() {
             kprintf("ERR: the rood directory was not loaded properly (missing EOF)");
             _panic();
         }
-        return;
+        return root;
     }
 
     // index of the current cluster to be read
@@ -297,12 +293,13 @@ static void load_root_folder() {
         kprintf("ERR: the rood directory was not loaded properly (missing EOF)");
         _panic();
     }
+    return root;
 }
 
 void ls() {
     // load the root directory from its location
     // within the virtual file system
-    load_root_folder();
+    folder_t *root = load_root_folder();
 
     // print out all files in it
     uint32_t i;
@@ -343,7 +340,7 @@ void ls() {
         }
     }
     // deallocate it since it's not needed anymore
-    free_root_dir();
+    free_root_dir(root);
 }
 
 int touch(char *filename) {
@@ -352,28 +349,30 @@ int touch(char *filename) {
     normalize_filename(filename);
 
     // load the root directory
-    load_root_folder();
+    folder_t *root = load_root_folder();
 
     // make sure the name isn't already taken
-    if (exists_file(filename) == 1)
+    if (exists_file(filename) == 1){
+        free_root_dir(root);
         return 1;
+    }
 
     // create a new file and store it into
     // the root directory
-    create_file(filename);
+    create_file(root, filename);
 
     // clear out all clusters currently held
     // by the root directory, so it could be
     // restored again with it's updated size
     free_all_occupied_clusters(ROOT_FIRST_START_CLUSTER);
-    save_root_folder();
+    save_root_folder(root);
 
     // deallocate it since it's not needed anymore
-    free_root_dir();
+    free_root_dir(root);
     return 0;
 }
 
-static void create_file(const char *filename) {
+static void create_file(folder_t *root, const char *filename) {
     // make sure there are at least 2 free clusters
     // (the start one of the file + its EOF cluster)
     if (exists_n_free_clusters(2) == 0) {
@@ -413,24 +412,24 @@ int delete_system_file(char *filename) {
     normalize_filename(filename);
 
     // load the root dir from the memory
-    load_root_folder();
+    folder_t *root = load_root_folder();
 
     // make sure the file to be deleted DOES exist
     if (exists_file(filename) == 0) {
-        free_root_dir();
+        free_root_dir(root);
         return 1;
     }
     // delete the file from the root directory
-    delete_file(filename);
+    delete_file(root, filename);
 
     // clear out all clusters currently held
     // by the root directory, so it could be
     // restored again with it's updated size
     free_all_occupied_clusters(ROOT_FIRST_START_CLUSTER);
-    save_root_folder();
+    save_root_folder(root);
 
     // deallocate it since it's not needed anymore
-    free_root_dir();
+    free_root_dir(root);
     return 0;
 }
 
@@ -439,34 +438,34 @@ int rm(char *filename) {
     normalize_filename(filename);
 
     // load the root dir from the memory
-    load_root_folder();
+    folder_t *root = load_root_folder();
 
-    file_t *file = get_file(filename);
+    file_t *file = get_file(root, filename);
     if (file->system == 1) {
-        free_root_dir();
+        free_root_dir(root);
         return 1;
     }
 
     // make sure the file to be deleted DOES exist
     if (exists_file(filename) == 0) {
-        free_root_dir();
+        free_root_dir(root);
         return 1;
     }
     // delete the file from the root directory
-    delete_file(filename);
+    delete_file(root, filename);
 
     // clear out all clusters currently held
     // by the root directory, so it could be
     // restored again with it's updated size
     free_all_occupied_clusters(ROOT_FIRST_START_CLUSTER);
-    save_root_folder();
+    save_root_folder(root);
 
     // deallocate it since it's not needed anymore
-    free_root_dir();
+    free_root_dir(root);
     return 0;
 }
 
-static void delete_file(const char *filename) {
+static void delete_file(folder_t *root, const char *filename) {
     uint32_t i, j;
     uint32_t file_pos;
 
@@ -497,7 +496,7 @@ static void delete_file(const char *filename) {
     root->file_count--;
 }
 
-static file_t *get_file(char *filename) {
+static file_t *get_file(folder_t *root, char *filename) {
     // return a reference to a file
     // in the root dir given by its name
     normalize_filename(filename);
@@ -510,22 +509,22 @@ static file_t *get_file(char *filename) {
 
 int file_exists(char *filename) {
     normalize_filename(filename);
-    load_root_folder();
-    file_t *file = get_file(filename);
-    free_root_dir();
+    folder_t *root = load_root_folder();
+    file_t *file = get_file(root, filename);
+    free_root_dir(root);
     return file != NULL;
 }
 
 int cat(char *filename) {
     // normalize the length of the file and load the root dir
     normalize_filename(filename);
-    load_root_folder();
+    folder_t *root = load_root_folder();
 
     // get the target file and make sure the file exists
-    file_t *file = get_file(filename);
+    file_t *file = get_file(root, filename);
     if (file == NULL) {
         kprintf("file not found\n\r");
-        free_root_dir();
+        free_root_dir(root);
         return 1;
     }
     // store the crucial information about the file
@@ -533,7 +532,7 @@ int cat(char *filename) {
     // need it (we only need the clusters -> fat)
     uint32_t curr_cluster = file->start_cluster_index;
     uint32_t size = file->size;
-    free_root_dir();
+    free_root_dir(root);
 
     uint32_t offset = 0;     // offset within the buffer to be printed out
     uint32_t bytes_to_read;  // number of bytes to read from the current cluster
@@ -574,13 +573,13 @@ static void append_data(char *filename, char *buffer, uint32_t bytes) {
     // normalize the length of the file
     // and load the root directory
     normalize_filename(filename);
-    load_root_folder();
+    folder_t *root = load_root_folder();
 
     // make sure the file we're going to append to exists
-    file_t *file = get_file(filename);
+    file_t *file = get_file(root, filename);
     if (file == NULL) {
         kprintf("file not found\n\r");
-        free_root_dir();
+        free_root_dir(root);
     }
     // offset within the last cluster (where the file data ends)
     uint32_t offset_in_last_cluster = file->size % CLUSTER_SIZE;
@@ -604,8 +603,8 @@ static void append_data(char *filename, char *buffer, uint32_t bytes) {
     // (we have to re-store the root dir - there's the updated file size)
     if (bytes <= bytes_in_last_cluster) {
         free_all_occupied_clusters(ROOT_FIRST_START_CLUSTER);
-        save_root_folder();
-        free_root_dir();
+        save_root_folder(root);
+        free_root_dir(root);
         return;
     }
 
@@ -654,8 +653,8 @@ static void append_data(char *filename, char *buffer, uint32_t bytes) {
     // re-store the root directory
     // so the file has its updated size
     free_all_occupied_clusters(ROOT_FIRST_START_CLUSTER);
-    save_root_folder();
-    free_root_dir();
+    save_root_folder(root);
+    free_root_dir(root);
 }
 
 int cp(char *src, char *des) {
@@ -667,19 +666,19 @@ int cp(char *src, char *des) {
         return 1;
 
     // make sure the source file exists
-    load_root_folder();
-    file_t *src_file = get_file(src);
+    folder_t *root = load_root_folder();
+    file_t *src_file = get_file(root, src);
     if (src_file == NULL) {
         // kprintf("source file not found\n\r");
-        free_root_dir();
+        free_root_dir(root);
         return 1;
     }
     // store the start cluster of the source file
     uint32_t src_curr_cluster = src_file->start_cluster_index;
 
     // if the destination file already exists, delete it
-    file_t *des_file = get_file(des);
-    free_root_dir();
+    file_t *des_file = get_file(root, des);
+    free_root_dir(root);
     if (des_file != NULL)
         rm(des);
 
@@ -694,18 +693,20 @@ int cp(char *src, char *des) {
         return 1;
     }
 
+    save_root_folder(root);
+    free_root_dir(root);
     // load the brand-new destination file
     // and store its start cluster, also
     // update its size and restore the root dir
     // so the change takes effect
-    load_root_folder();
-    des_file = get_file(des);
+    root = load_root_folder();
+    des_file = get_file(root, des);
     uint32_t des_prev_cluster;
     uint32_t des_curr_cluster = des_file->start_cluster_index;
     des_file->size = src_file->size;
     free_all_occupied_clusters(ROOT_FIRST_START_CLUSTER);
-    save_root_folder();
-    free_root_dir();
+    save_root_folder(root);
+    free_root_dir(root);
 
     // set the EOF cluster of the new file as free,
     // so it could be used to store data
@@ -761,9 +762,9 @@ int read(char *filename, char *buffer, uint32_t offset, uint32_t len) {
     // normalize the filename, load the root directory
     // and get the file, so we know where the file starts and how bit it is
     normalize_filename(filename);
-    load_root_folder();
-    file_t *file = get_file(filename);
-    free_root_dir();
+    folder_t *root = load_root_folder();
+    file_t *file = get_file(root, filename);
+    free_root_dir(root);
 
     // store some essential information about the file
     // (we'll be needing them)
@@ -821,11 +822,11 @@ int is_file_open(char *filename) {
     // load the root dir, so we can get the file,
     // and finally load up the file
     normalize_filename(filename);
-    load_root_folder();
-    file_t *file = get_file(filename);
+    folder_t *root = load_root_folder();
+    file_t *file = get_file(root, filename);
 
     // free the root dir as we don't need it
-    free_root_dir();
+    free_root_dir(root);
 
     // if the file doesn't exist of it has not been opened
     // return 0, otherwise return 1
@@ -840,12 +841,12 @@ int set_as_system_file(char *filename) {
     if (is_file_open(filename) == 1)
         return 1; // error
 
-    load_root_folder();
-    file_t *file = get_file(filename);
+    folder_t *root = load_root_folder();
+    file_t *file = get_file(root, filename);
     file->system = 1;
     free_all_occupied_clusters(ROOT_FIRST_START_CLUSTER);
-    save_root_folder();
-    free_root_dir();
+    save_root_folder(root);
+    free_root_dir(root);
 
     return 0; // success
 }
@@ -858,12 +859,12 @@ int open_file(char *filename) {
 
     // set the flag that the file is now opened
     // and save the root dir so the change takes effect
-    load_root_folder();
-    file_t *file = get_file(filename);
+    folder_t *root = load_root_folder();
+    file_t *file = get_file(root, filename);
     file->open = 1;
     free_all_occupied_clusters(ROOT_FIRST_START_CLUSTER);
-    save_root_folder();
-    free_root_dir();
+    save_root_folder(root);
+    free_root_dir(root);
 
     return 0; // success
 }
@@ -876,12 +877,12 @@ int close_file(char *filename) {
 
     // set the flag that the file is now closed
     // and save the root dir so the change takes effect
-    load_root_folder();
-    file_t *file = get_file(filename);
+    folder_t *root = load_root_folder();
+    file_t *file = get_file(root, filename);
     file->open = 0;
     free_all_occupied_clusters(ROOT_FIRST_START_CLUSTER);
-    save_root_folder();
-    free_root_dir();
+    save_root_folder(root);
+    free_root_dir(root);
 
     return 0; // success
 }
@@ -889,31 +890,31 @@ int close_file(char *filename) {
 int write(char *filename, char *buffer, uint32_t offset, uint32_t len) {
     // normalize the name of the file and get the corresponding file
     normalize_filename(filename);
-    load_root_folder();
-    file_t *file = get_file(filename);
+    folder_t *root = load_root_folder();
+    file_t *file = get_file(root, filename);
 
     // make sure the file does exist
     if (file == NULL) {
         kprintf("file not found\n\r");
-        free_root_dir();
+        free_root_dir(root);
         return 1;
     }
     // make sure the offset falls into the files boundaries
     if (offset > file->size) {
         kprintf("the offset is greater than the size of the file itself\n\r");
-        free_root_dir();
+        free_root_dir(root);
         return 1;
     }
     // check if attaching the file to the end would be enough
     if (offset == file->size) {
-        free_root_dir();
+        free_root_dir(root);
         append_data(filename, buffer, len);
         return 0;
     }
     // make sure we have enough clusters available to store the contents of the file
     if (exists_n_free_clusters(get_cluster_count_needed(file->size + len)) == 0) {
         kprintf("not enough space to extend the file\n\r");
-        free_root_dir();
+        free_root_dir(root);
         return 1;
     }
     // store the original size of the file
@@ -923,8 +924,8 @@ int write(char *filename, char *buffer, uint32_t offset, uint32_t len) {
     // re-store the root directory so the file has its updated size
     file->size = offset;
     free_all_occupied_clusters(ROOT_FIRST_START_CLUSTER);
-    save_root_folder();
-    free_root_dir();
+    save_root_folder(root);
+    free_root_dir(root);
 
     // calculate the cluster we want to insert data into
     // as well as the offset within that cluster
@@ -997,12 +998,12 @@ int write(char *filename, char *buffer, uint32_t offset, uint32_t len) {
 
 uint32_t get_file_size(char *filename) {
     normalize_filename(filename);
-    load_root_folder();
-    file_t *file = get_file(filename);
+    folder_t *root = load_root_folder();
+    file_t *file = get_file(root, filename);
     if (file == NULL)
         return 0;
     uint32_t size = file->size;
-    free_root_dir();
+    free_root_dir(root);
     return size;
 }
 

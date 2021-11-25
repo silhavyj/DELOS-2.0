@@ -3,6 +3,7 @@
 #include <common.h>
 #include <string.h>
 #include <memory.h>
+#include <processes/scheduler.h>
 
 // Screen buffer
 static char screen_buffer[SCREEN_BUFFER_SIZE];
@@ -104,7 +105,18 @@ void kprintf(char *c, ...) {
         c++;
     }
     va_end(lst);
-    print_string(screen_buffer);
+    if(is_scheduler_initialized()){
+        PCB_t *running_process = get_running_process();
+        if(running_process->shell_id == get_focused_terminal()){
+            print_string(screen_buffer);
+        }
+        if(running_process->state != PROCESS_STATE_TERMINATION){
+            print_to_stream(running_process, screen_buffer);
+        }
+    }
+    else{
+        print_string(screen_buffer);
+    }
 }
 
 // Prints string to current cursor position

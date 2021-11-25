@@ -121,11 +121,11 @@ void mouse_callback() {
 // Printing mouse click state
 static void print_mouse_state(uint8_t disabled) {
     set_color(FOREGROUND_CYAN);
-    kprintf("MOUSE ");
+    print_string("MOUSE ");
     if (disabled == 0) {
-        kprintf("ENABLED\n\r");
+        print_string("ENABLED\n\r");
     } else {
-        kprintf("DISABLED\n\r");
+        print_string("DISABLED\n\r");
     }
     reset_color();
 }

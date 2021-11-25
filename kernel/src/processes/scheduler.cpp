@@ -20,6 +20,10 @@ list_t *all_processes = NULL;
 list_t *blocked_on_process_processes = NULL;
 list_t *blocked_on_keyboard_processes = NULL;
 
+uint8_t is_scheduler_initialized() {
+    return all_processes != NULL;
+}
+
 PCB_t *get_running_process() {
     return running_process;
 }
@@ -188,20 +192,16 @@ void switch_to_terminal(uint32_t pid) {
 
     clear_screen();
     uint32_t file_size = get_file_size(pcb->stdout);
-    char *buffer = (char *)kmalloc(MAX_SHELL_FILE_SIZE + 1);
+    char *buffer = (char *)kmalloc(file_size + 1);
     uint32_t offset;
     uint32_t len;
-    if ((int)file_size - MAX_SHELL_FILE_SIZE <= 0) {
-        offset = 0;
-        len = file_size;
-    } else {
-        offset = file_size - MAX_SHELL_FILE_SIZE;
-        len = MAX_SHELL_FILE_SIZE;
-    }
-    memset(buffer, 0, MAX_SHELL_FILE_SIZE);
+    offset = 0;
+    len = file_size;
+    memset(buffer, 0, file_size + 1);
     read(pcb->stdout, buffer, offset, len);
     buffer[len] = '\0';
-    kprintf("%s", buffer);
+    //kprintf("%s", buffer);
+    print_string(buffer);
     kfree(buffer);
 
     set_color(FOREGROUND_CYAN);
@@ -265,6 +265,7 @@ PCB_t *create_process(const char *filename, uint32_t ppid, const char *stdout, u
 }
 
 void kill_process(PCB_t *pcb) {
+    pcb->state = PROCESS_STATE_TERMINATION;
     free_pid(pcb->pid);
     unmap_process(pcb);
 

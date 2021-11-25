@@ -4,9 +4,10 @@
 #include <processes/process.h>
 #include <interrupts/handlers.h>
 
-#define TICKS_FOR_TASK_SWITCH 10
-#define NUMBER_OF_TERMINALS    4
-#define MAX_SHELL_FILE_SIZE  200
+#define TICKS_FOR_TASK_SWITCH        10
+#define NUMBER_OF_TERMINALS           4
+#define MAX_SHELL_FILE_SIZE         200
+#define MAX_SHELL_FILE_SIZE_LIMIT  250
 
 PCB_t *get_running_process();
 PCB_t *get_latest_running_non_idle_process();
@@ -26,5 +27,6 @@ void wake_process_waiting_for_keyboard(char *data);
 uint8_t is_blocked_elsewhere(PCB_t *pcb, list_t *originalQueue);
 void switch_to_terminal(uint32_t pid);
 uint32_t get_focused_terminal();
+uint8_t is_scheduler_initialized();
 
 #endif

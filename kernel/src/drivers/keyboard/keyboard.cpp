@@ -27,19 +27,21 @@ void abort_current_cmd() {
         running_process->pid == 2 ||
         running_process->pid == 3 ||
         running_process->pid == 4 ) {
-        kprintf("^C\n\r");
+        //kprintf("^C\n\r");
+        print_string("^C\n\r");
         keyboard_buff_pos = 0;
     }
     else {
         wake_up_parent_process(running_process->ppid, 1);
-        kill_process(running_process);
-        kprintf("^C\n\r");
-        keyboard_buff_pos = 0;
-        PIC_sendEOI(PS2_KEYBOARD);
         PCB_t *curr_on_cpu = get_running_process();
         if (curr_on_cpu != running_process){
             set_process_as_ready(curr_on_cpu);
         }
+        kill_process(running_process);
+        //kprintf("^C\n\r");
+        print_string("^C\n\r");
+        keyboard_buff_pos = 0;
+        PIC_sendEOI(PS2_KEYBOARD);
         switch_to_next_process();
     }
 }
@@ -101,6 +103,7 @@ static unsigned char convert_scan_code(uint8_t scan_code, uint8_t *pressed) {
 void process_key(uint8_t scan_code) {
     uint8_t pressed;
     char symbol = convert_scan_code(scan_code, &pressed);
+    char temp_buff[3];
 
     if (symbol == KEY_CODE_BACK_SPACE) {
         if (keyboard_buff_pos > 0) {
@@ -108,14 +111,22 @@ void process_key(uint8_t scan_code) {
             keyboard_buff_pos--;
         }
     } else if (symbol == ENTER_KEY_CODE) {
-        kprintf("\n\r");
+        temp_buff[0] = '\r';
+        temp_buff[1] = '\n';
+        temp_buff[2] = '\0';
+        //kprintf("\n\r");
+        print_string(temp_buff);
         keyboard_buffer[keyboard_buff_pos] = '\0';
         wake_process_waiting_for_keyboard(keyboard_buffer);
         keyboard_buff_pos = 0;
     }
     // Symbol is printable (just print it)
     else if (pressed && symbol != 0) {
-        kprintf("%c", symbol);
+        temp_buff[0] = symbol;
+        temp_buff[1] = '\0';
+        temp_buff[2] = '\0';
+        //kprintf("%c", symbol);
+        print_string(temp_buff);
         keyboard_buffer[keyboard_buff_pos++] = symbol;
         if (keyboard_buff_pos == KEYBOARD_BUFF_SIZE)
             keyboard_buff_pos = 0;
