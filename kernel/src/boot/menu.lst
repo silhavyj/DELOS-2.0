@@ -1,0 +1,5 @@
+default=0
+timeout=0
+
+title DELOS-2.0 
+kernel /boot/DELOS-2.0.elf
