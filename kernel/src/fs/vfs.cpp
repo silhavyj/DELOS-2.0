@@ -693,8 +693,6 @@ int cp(char *src, char *des) {
         return 1;
     }
 
-    save_root_folder(root);
-    free_root_dir(root);
     // load the brand-new destination file
     // and store its start cluster, also
     // update its size and restore the root dir
